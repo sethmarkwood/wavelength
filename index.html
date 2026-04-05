@@ -275,19 +275,6 @@
     margin: 20px 0;
   }
 
-  .link-box {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px dashed rgba(167, 139, 204, 0.4);
-    border-radius: 12px;
-    padding: 16px;
-    margin: 16px 0;
-    word-break: break-all;
-    font-size: 0.85rem;
-    color: var(--text-dim);
-    max-height: 100px;
-    overflow-y: auto;
-  }
-
   .name-input-row {
     display: flex;
     gap: 12px;
@@ -447,6 +434,79 @@
   .badge-food { background: rgba(255, 107, 157, 0.2); color: var(--accent1); }
   .badge-absurd { background: rgba(251, 191, 36, 0.2); color: var(--accent4); }
 
+  /* ===== Game Code ===== */
+  .code-box {
+    background: rgba(0, 0, 0, 0.4);
+    border: 2px solid rgba(251, 191, 36, 0.3);
+    border-radius: 12px;
+    padding: 16px;
+    margin: 16px 0;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 0.82rem;
+    color: var(--accent4);
+    word-break: break-all;
+    line-height: 1.5;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    position: relative;
+  }
+
+  .code-box:hover {
+    border-color: var(--accent4);
+  }
+
+  .code-box .click-hint {
+    display: block;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-top: 8px;
+    font-weight: 400;
+  }
+
+  .code-length {
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-top: -8px;
+    margin-bottom: 12px;
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 20px 0;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(167, 139, 204, 0.2);
+  }
+
+  .join-section textarea {
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 0.85rem;
+    min-height: 70px;
+    text-align: center;
+  }
+
+  .error-msg {
+    color: var(--danger);
+    font-size: 0.85rem;
+    text-align: center;
+    margin-top: 8px;
+    display: none;
+  }
+
+  .error-msg.show { display: block; }
+
   @media (max-width: 500px) {
     h1 { font-size: 2rem; }
     .card { padding: 20px; }
@@ -468,10 +528,10 @@
 <script>
 // ============ SPECTRUM PACKS ============
 const PACKS = {
-  classic: {
+  c: {
     name: "Classic",
     icon: "\u{1F3AF}",
-    desc: "The original spectrum pack — universal concepts everyone can debate.",
+    desc: "The original spectrum pack \u2014 universal concepts everyone can debate.",
     badge: "badge-classic",
     spectrums: [
       ["Underrated", "Overrated"],
@@ -537,7 +597,7 @@ const PACKS = {
     ]
   },
 
-  twenties: {
+  t: {
     name: "The 2020s",
     icon: "\u{1F4F1}",
     desc: "Spectrums inspired by the chaos, culture, and vibes of the 2020s decade.",
@@ -606,10 +666,10 @@ const PACKS = {
     ]
   },
 
-  food: {
+  f: {
     name: "Foodie",
     icon: "\u{1F355}",
-    desc: "For the food-obsessed — every spectrum is deliciously debatable.",
+    desc: "For the food-obsessed \u2014 every spectrum is deliciously debatable.",
     badge: "badge-food",
     spectrums: [
       ["Street Food", "Fine Dining"],
@@ -675,7 +735,7 @@ const PACKS = {
     ]
   },
 
-  absurd: {
+  a: {
     name: "Unhinged",
     icon: "\u{1F92A}",
     desc: "Completely ridiculous, weirdly debatable spectrums. Total chaos.",
@@ -745,41 +805,69 @@ const PACKS = {
   }
 };
 
-const PACK_ORDER = ['classic', 'twenties', 'food', 'absurd'];
+// Map long IDs to short IDs for backward compat
+const PACK_ALIASES = { classic: 'c', twenties: 't', food: 'f', absurd: 'a' };
+const PACK_ORDER = ['c', 't', 'f', 'a'];
 const ROUNDS_PER_TURN = 3;
 
-// Active pack for current game
 let activePack = null;
 let activePackId = null;
 
 function getSpectrums() {
-  return activePack ? activePack.spectrums : PACKS.classic.spectrums;
+  return activePack ? activePack.spectrums : PACKS.c.spectrums;
 }
 
-// ============ STATE ENCODING ============
+function resolvePackId(id) {
+  if (PACKS[id]) return id;
+  if (PACK_ALIASES[id]) return PACK_ALIASES[id];
+  return 'c';
+}
+
+// ============ STATE ENCODING (compact game codes) ============
 function encodeState(state) {
   const json = JSON.stringify(state);
-  return btoa(unescape(encodeURIComponent(json)));
+  // Use URI-safe base64
+  return btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function decodeState(encoded) {
   try {
-    const json = decodeURIComponent(escape(atob(encoded)));
+    // Restore standard base64
+    let b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const json = decodeURIComponent(escape(atob(b64)));
     return JSON.parse(json);
   } catch(e) {
     return null;
   }
 }
 
-function getStateFromURL() {
-  const hash = window.location.hash.slice(1);
-  if (!hash) return null;
-  return decodeState(hash);
+function makeGameCode(state) {
+  return 'WL~' + encodeState(state);
 }
 
-function generateLink(state) {
-  const encoded = encodeState(state);
-  return window.location.origin + window.location.pathname + '#' + encoded;
+function parseGameCode(code) {
+  code = code.trim();
+  // Strip WL~ prefix if present
+  if (code.startsWith('WL~')) code = code.slice(3);
+  // Also try URL hash format for backward compat
+  if (code.includes('#')) code = code.split('#').pop();
+  return decodeState(code);
+}
+
+// Build the compact share state (scores only, no replay history)
+function buildShareState(opts) {
+  return {
+    v: 2,
+    p: 'g', // phase: guess
+    n: opts.cluerName,
+    k: opts.packId,
+    r: opts.rounds.map(r => [r.spectrumIdx, r.target, r.clue]), // [idx, target, clue]
+    u: opts.usedIndices,
+    s: opts.scores || {},   // {playerName: totalPoints}
+    tn: opts.turnNum || 1
+  };
 }
 
 // ============ GAME LOGIC ============
@@ -811,9 +899,15 @@ function scoreGuess(guess, target) {
 const $ = id => document.getElementById(id);
 const app = () => $('app');
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
 function showToast(msg) {
   const toast = $('toast');
-  toast.textContent = msg || 'Link copied!';
+  toast.textContent = msg || 'Copied!';
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 2000);
 }
@@ -825,8 +919,7 @@ function renderSpectrumBar(spectrum, opts = {}) {
 
   if (target !== undefined) {
     const zoneLeft = Math.max(0, target - 8);
-    const zoneWidth = 16;
-    html += `<div class="target-zone" style="left:${zoneLeft}%;width:${zoneWidth}%"></div>`;
+    html += `<div class="target-zone" style="left:${zoneLeft}%;width:16%"></div>`;
     html += `<div class="target-center" style="left:${target}%"></div>`;
   }
 
@@ -881,6 +974,17 @@ function pointsBadge(pts) {
   return `<span class="points-badge ${cls}">${label}</span>`;
 }
 
+function renderScoreboard(scores) {
+  const players = Object.keys(scores);
+  if (players.length === 0) return '';
+  let html = '<div class="total-scores">';
+  players.forEach((p, i) => {
+    html += `<span class="${i === 0 ? 'p1' : 'p2'}">${escapeHtml(p)}: ${scores[p]} pts</span>`;
+  });
+  html += '</div>';
+  return html;
+}
+
 // ============ SCREENS ============
 
 function showHome() {
@@ -893,20 +997,59 @@ function showHome() {
         Give a clue so your partner can guess where the target is!
       </p>
       <p class="instructions">
-        You'll take turns giving 3 clues each. After you finish, you'll get a link to
-        send to your partner. They open it, guess your clues, then write their own — and send the link back.
+        You'll take turns giving 3 clues each. After you finish, you'll get a
+        <strong>game code</strong> to send to your partner. They paste it in, guess your clues,
+        write their own — and send the code back.
       </p>
       <div class="name-input-row">
         <input type="text" id="player-name" placeholder="Your name" maxlength="20" />
       </div>
       <div class="btn-row">
-        <button class="btn-primary" onclick="showPackSelection()">Start New Game</button>
+        <button class="btn-primary" onclick="showPackSelection()">New Game</button>
+      </div>
+
+      <div class="divider">or join an existing game</div>
+
+      <div class="join-section">
+        <textarea id="join-code" placeholder="Paste a game code here..."></textarea>
+        <div class="error-msg" id="join-error">That doesn't look like a valid game code. Make sure you copied the full code.</div>
+        <div class="btn-row">
+          <button class="btn-secondary" onclick="joinFromCode()">Join Game</button>
+        </div>
       </div>
     </div>
   `;
 
   const saved = sessionVars.playerName;
   if (saved) $('player-name').value = saved;
+
+  // Auto-focus the join code if they came with one in clipboard
+  $('join-code').addEventListener('paste', () => {
+    setTimeout(() => {
+      const val = $('join-code').value.trim();
+      if (val.length > 10) joinFromCode();
+    }, 100);
+  });
+}
+
+function joinFromCode() {
+  const raw = $('join-code').value.trim();
+  if (!raw) return;
+
+  const state = parseGameCode(raw);
+  if (!state || !state.r || !state.n) {
+    $('join-error').classList.add('show');
+    return;
+  }
+  $('join-error').classList.remove('show');
+
+  // Save name if entered
+  const nameEl = $('player-name');
+  if (nameEl && nameEl.value.trim()) {
+    sessionVars.playerName = nameEl.value.trim();
+  }
+
+  loadGameState(state);
 }
 
 function showPackSelection() {
@@ -946,14 +1089,10 @@ function showPackSelection() {
 function selectPack(packId) {
   activePackId = packId;
   activePack = PACKS[packId];
-
-  // Update visual selection
   PACK_ORDER.forEach(pid => {
     const el = $('pack-' + pid);
     if (el) el.classList.toggle('selected', pid === packId);
   });
-
-  // Enable start button
   const btn = $('start-btn');
   if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
 }
@@ -966,21 +1105,18 @@ function startNewGame() {
   for (let i = 0; i < ROUNDS_PER_TURN; i++) {
     const indices = pickSpectrums(1, usedIndices);
     usedIndices.push(...indices);
-    rounds.push({
-      spectrumIdx: indices[0],
-      target: generateTarget(),
-      clue: ''
-    });
+    rounds.push({ spectrumIdx: indices[0], target: generateTarget(), clue: '' });
   }
 
   currentSession = {
     phase: 'clue-giving',
-    p1Name: sessionVars.playerName,
-    p1Rounds: rounds,
+    cluerName: sessionVars.playerName,
+    rounds: rounds,
     currentRound: 0,
     usedIndices: usedIndices,
     packId: activePackId,
-    history: []
+    scores: {},
+    turnNum: 1
   };
 
   showClueGiving();
@@ -988,7 +1124,7 @@ function startNewGame() {
 
 function showClueGiving() {
   const s = currentSession;
-  const round = s.p1Rounds[s.currentRound];
+  const round = s.rounds[s.currentRound];
   const spectrum = getSpectrums()[round.spectrumIdx];
 
   app().innerHTML = `
@@ -1005,7 +1141,7 @@ function showClueGiving() {
       </div>
       <div class="btn-row">
         ${s.currentRound > 0 ? '<button class="btn-secondary btn-small" onclick="prevClueRound()">← Back</button>' : ''}
-        <button class="btn-primary" onclick="submitClue()">${s.currentRound === ROUNDS_PER_TURN - 1 ? 'Finish & Get Link' : 'Next →'}</button>
+        <button class="btn-primary" onclick="submitClue()">${s.currentRound === ROUNDS_PER_TURN - 1 ? 'Finish & Get Code' : 'Next →'}</button>
       </div>
     </div>
   `;
@@ -1014,117 +1150,145 @@ function showClueGiving() {
   $('clue-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitClue(); });
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 function submitClue() {
   const clue = $('clue-input').value.trim();
   if (!clue) { $('clue-input').focus(); return; }
 
-  currentSession.p1Rounds[currentSession.currentRound].clue = clue;
+  currentSession.rounds[currentSession.currentRound].clue = clue;
 
   if (currentSession.currentRound < ROUNDS_PER_TURN - 1) {
     currentSession.currentRound++;
     showClueGiving();
   } else {
-    showGeneratedLink();
+    showGameCode();
   }
 }
 
 function prevClueRound() {
   const clue = $('clue-input').value.trim();
-  currentSession.p1Rounds[currentSession.currentRound].clue = clue;
+  currentSession.rounds[currentSession.currentRound].clue = clue;
   currentSession.currentRound--;
   showClueGiving();
 }
 
-function showGeneratedLink() {
+function showGameCode() {
   const s = currentSession;
 
-  const shareState = {
-    phase: 'guess',
-    p1Name: s.p1Name,
-    pack: s.packId || activePackId,
-    rounds: s.p1Rounds.map(r => ({
-      si: r.spectrumIdx,
-      t: r.target,
-      c: r.clue
-    })),
+  const shareState = buildShareState({
+    cluerName: s.cluerName,
+    packId: s.packId || activePackId,
+    rounds: s.rounds,
     usedIndices: s.usedIndices,
-    history: s.history || []
-  };
+    scores: s.scores || {},
+    turnNum: s.turnNum || 1
+  });
 
-  const link = generateLink(shareState);
+  const code = makeGameCode(shareState);
 
   app().innerHTML = `
     <div class="card fade-in">
-      <h2>Send This Link!</h2>
+      <h2>Send This Code!</h2>
       <p class="instructions">
-        Your clues are locked in. Copy this link and send it to your partner.
-        When they open it, they'll see your clues and try to guess where the target is on each spectrum.
+        Your clues are locked in. Copy this game code and send it to your partner
+        via text, WhatsApp, email — whatever you like. They'll paste it into the game to play.
       </p>
-      <div class="link-box" id="link-text">${link}</div>
+      <div class="code-box" id="code-box" onclick="copyCode()">
+        ${escapeHtml(code)}
+        <span class="click-hint">tap to copy</span>
+      </div>
+      <div class="code-length">${code.length} characters</div>
       <div class="btn-row">
-        <button class="btn-success" onclick="copyLink()">Copy Link</button>
+        <button class="btn-success" onclick="copyCode()">Copy Code</button>
+        <button class="btn-secondary btn-small" onclick="showHome()">Home</button>
       </div>
     </div>
   `;
 }
 
-function copyLink() {
-  const linkText = $('link-text').textContent;
-  navigator.clipboard.writeText(linkText).then(() => {
-    showToast('Link copied!');
+function copyCode() {
+  const box = $('code-box');
+  // Get just the code text (first text node), not the hint
+  const code = box.childNodes[0].textContent.trim();
+  navigator.clipboard.writeText(code).then(() => {
+    showToast('Code copied!');
   }).catch(() => {
+    // Fallback
     const range = document.createRange();
-    range.selectNodeContents($('link-text'));
+    range.selectNodeContents(box);
     window.getSelection().removeAllRanges();
     window.getSelection().addRange(range);
-    showToast('Select all & copy manually');
+    showToast('Select all & copy');
   });
 }
 
 // ============ GUESSING PHASE ============
 
-function startGuessing(state) {
-  // Set the active pack from the game state
-  activePackId = state.pack || 'classic';
-  activePack = PACKS[activePackId];
+function loadGameState(state) {
+  // Normalize pack ID
+  const packId = resolvePackId(state.k || state.pack || 'c');
+  activePackId = packId;
+  activePack = PACKS[packId];
 
-  currentSession = {
-    phase: 'guessing',
-    p1Name: state.p1Name,
-    packId: activePackId,
-    rounds: state.rounds.map(r => ({
-      spectrumIdx: r.si,
-      target: r.t,
-      clue: r.c,
-      guess: 50
-    })),
-    usedIndices: state.usedIndices,
-    history: state.history || [],
-    currentRound: 0,
-    p2Name: ''
-  };
+  // Handle v2 compact format
+  if (state.v === 2) {
+    currentSession = {
+      phase: 'guessing',
+      cluerName: state.n,
+      packId: packId,
+      rounds: state.r.map(r => ({
+        spectrumIdx: r[0],
+        target: r[1],
+        clue: r[2],
+        guess: 50
+      })),
+      usedIndices: state.u,
+      scores: state.s || {},
+      turnNum: state.tn || 1,
+      currentRound: 0,
+      guesserName: ''
+    };
+  } else {
+    // Legacy v1 format (URL hash)
+    currentSession = {
+      phase: 'guessing',
+      cluerName: state.p1Name,
+      packId: packId,
+      rounds: state.rounds.map(r => ({
+        spectrumIdx: r.si,
+        target: r.t,
+        clue: r.c,
+        guess: 50
+      })),
+      usedIndices: state.usedIndices,
+      scores: {},
+      turnNum: 1,
+      currentRound: 0,
+      guesserName: ''
+    };
+  }
 
   showNameEntry();
 }
 
 function showNameEntry() {
+  const s = currentSession;
   const pack = PACKS[activePackId];
+  const hasScores = Object.keys(s.scores).length > 0;
+
   app().innerHTML = `
     <div class="card fade-in">
-      <h2>${escapeHtml(currentSession.p1Name)} sent you clues!</h2>
+      <h2>${escapeHtml(s.cluerName)} sent you clues!</h2>
+      ${hasScores ? `
+        <p class="instructions" style="margin-bottom:8px">Current scores:</p>
+        ${renderScoreboard(s.scores)}
+      ` : ''}
       <p class="instructions">
-        ${escapeHtml(currentSession.p1Name)} has given you ${ROUNDS_PER_TURN} clues using the
-        <strong>${pack.icon} ${pack.name}</strong> pack.
+        ${escapeHtml(s.cluerName)} has given you ${ROUNDS_PER_TURN} clues using the
+        <strong>${pack.icon} ${pack.name}</strong> pack (Turn ${s.turnNum}).
         For each one, drag the marker to where you think the hidden target is.
       </p>
       <div class="name-input-row">
-        <input type="text" id="p2-name" placeholder="Your name" maxlength="20" value="${sessionVars.playerName || ''}" />
+        <input type="text" id="p2-name" placeholder="Your name" maxlength="20" value="${escapeHtml(sessionVars.playerName || '')}" />
       </div>
       <div class="btn-row">
         <button class="btn-primary" onclick="beginGuessing()">Let's Go!</button>
@@ -1136,7 +1300,7 @@ function showNameEntry() {
 
 function beginGuessing() {
   const name = $('p2-name').value.trim() || 'Player 2';
-  currentSession.p2Name = name;
+  currentSession.guesserName = name;
   sessionVars.playerName = name;
   showGuessRound();
 }
@@ -1151,7 +1315,7 @@ function showGuessRound() {
     <div class="card fade-in">
       ${renderRoundDots(ROUNDS_PER_TURN, s.currentRound, s.currentRound)}
       <h2>Guess the Target</h2>
-      <p class="instructions">${escapeHtml(s.p1Name)}'s clue:</p>
+      <p class="instructions">${escapeHtml(s.cluerName)}'s clue:</p>
       <div class="clue-display">${escapeHtml(round.clue)}</div>
       ${renderSpectrumBar(spectrum, { interactive: true, id: barId })}
       <div class="btn-row">
@@ -1204,174 +1368,81 @@ function showGuessResults() {
     `;
   });
 
+  // Update running scores
+  const newScores = { ...s.scores };
+  if (!newScores[s.guesserName]) newScores[s.guesserName] = 0;
+  newScores[s.guesserName] += totalPts;
+  // Ensure cluer is in scores too (at 0 if first time)
+  if (newScores[s.cluerName] === undefined) newScores[s.cluerName] = 0;
+
+  s.scores = newScores;
+
   app().innerHTML = `
     <div class="card fade-in">
-      <h2>Results — Guessing ${escapeHtml(s.p1Name)}'s Clues</h2>
+      <h2>Results — Guessing ${escapeHtml(s.cluerName)}'s Clues</h2>
       <div class="score-display">
         <div class="score-big">${totalPts} / ${ROUNDS_PER_TURN * 4}</div>
-        <div class="score-label">points scored</div>
+        <div class="score-label">points this round</div>
       </div>
+      ${renderScoreboard(newScores)}
       ${roundsHtml}
       <div class="btn-row">
-        <button class="btn-primary" onclick="startP2Clues(${totalPts})">Now Give Your Clues →</button>
+        <button class="btn-primary" onclick="startMyClues()">Now Give Your Clues →</button>
       </div>
     </div>
   `;
 }
 
-function startP2Clues(guessScore) {
+function startMyClues() {
   const s = currentSession;
-
-  const turnResult = {
-    cluer: s.p1Name,
-    guesser: s.p2Name,
-    rounds: s.rounds.map(r => ({
-      si: r.spectrumIdx,
-      t: r.target,
-      c: r.clue,
-      g: r.guess,
-      pts: scoreGuess(r.guess, r.target)
-    })),
-    totalPts: guessScore
-  };
-
-  const history = [...(s.history || []), turnResult];
 
   const newUsed = [...s.usedIndices];
   const newRounds = [];
   for (let i = 0; i < ROUNDS_PER_TURN; i++) {
     const indices = pickSpectrums(1, newUsed);
     newUsed.push(...indices);
-    newRounds.push({
-      spectrumIdx: indices[0],
-      target: generateTarget(),
-      clue: ''
-    });
+    newRounds.push({ spectrumIdx: indices[0], target: generateTarget(), clue: '' });
   }
 
   currentSession = {
-    phase: 'clue-giving-p2',
-    p1Name: s.p2Name,
-    originalP1: s.p1Name,
-    p1Rounds: newRounds,
+    phase: 'clue-giving',
+    cluerName: s.guesserName,
+    rounds: newRounds,
     currentRound: 0,
     usedIndices: newUsed,
     packId: s.packId || activePackId,
-    history: history
+    scores: s.scores,
+    turnNum: (s.turnNum || 1) + 1
   };
 
   showClueGiving();
 }
 
-// ============ HISTORY / SCORES ============
-
-function showHistory(state) {
-  const h = state.history || [];
-  if (h.length === 0) return;
-
-  // Need the right pack to show spectrum labels
-  const packId = state.pack || activePackId || 'classic';
-  const spectrums = PACKS[packId].spectrums;
-
-  const scores = {};
-  h.forEach(turn => {
-    if (!scores[turn.guesser]) scores[turn.guesser] = 0;
-    scores[turn.guesser] += turn.totalPts;
-  });
-
-  const players = Object.keys(scores);
-  let scoresHtml = '<div class="total-scores">';
-  players.forEach((p, i) => {
-    scoresHtml += `<span class="${i === 0 ? 'p1' : 'p2'}">${escapeHtml(p)}: ${scores[p]} pts</span>`;
-  });
-  scoresHtml += '</div>';
-
-  let turnsHtml = '';
-  h.forEach((turn, ti) => {
-    let roundsDetail = '';
-    turn.rounds.forEach((r, ri) => {
-      const spectrum = spectrums[r.si];
-      roundsDetail += `
-        <div class="round-result">
-          <h3>Round ${ri + 1}</h3>
-          <div class="clue-display">${escapeHtml(r.c)}</div>
-          ${renderSpectrumBar(spectrum, { target: r.t, guess: r.g })}
-          <div style="text-align:center">${pointsBadge(r.pts)}</div>
-        </div>
-      `;
-    });
-
-    turnsHtml += `
-      <div class="card fade-in" style="animation-delay: ${ti * 0.1}s">
-        <div class="history-header">
-          <h3>${escapeHtml(turn.cluer)}'s clues → ${escapeHtml(turn.guesser)} guessed</h3>
-          <span class="points-badge points-${turn.totalPts >= 10 ? '4' : turn.totalPts >= 6 ? '3' : turn.totalPts >= 3 ? '2' : '0'}">${turn.totalPts} pts</span>
-        </div>
-        ${roundsDetail}
-      </div>
-    `;
-  });
-
-  return { scoresHtml, turnsHtml, scores };
-}
-
-// ============ URL STATE HANDLER ============
+// ============ URL HASH HANDLER (backward compat) ============
 
 let currentSession = null;
 let sessionVars = { playerName: '' };
 
 function handleURL() {
-  const state = getStateFromURL();
-
-  if (!state) {
+  const hash = window.location.hash.slice(1);
+  if (!hash) {
     showHome();
     return;
   }
 
-  // Restore pack from shared state
-  if (state.pack && PACKS[state.pack]) {
-    activePackId = state.pack;
-    activePack = PACKS[state.pack];
+  // Try to parse as game state
+  const state = decodeState(hash);
+  if (state) {
+    // Clear the hash so it doesn't stick around
+    history.replaceState(null, '', window.location.pathname);
+    loadGameState(state);
+    return;
   }
 
-  if (state.phase === 'guess') {
-    if (state.history && state.history.length > 0) {
-      showHistoryThenGuess(state);
-    } else {
-      startGuessing(state);
-    }
-  }
-}
-
-function showHistoryThenGuess(state) {
-  const histData = showHistory(state);
-  const pack = PACKS[state.pack || 'classic'];
-
-  app().innerHTML = `
-    <div class="card fade-in">
-      <h2>Game History <span style="font-size:0.85rem;color:var(--text-dim);font-weight:400;">— ${pack.icon} ${pack.name} Pack</span></h2>
-      ${histData ? histData.scoresHtml : ''}
-    </div>
-    ${histData ? histData.turnsHtml : ''}
-    <div class="card fade-in">
-      <h2>Your Turn!</h2>
-      <p class="instructions">${escapeHtml(state.p1Name)} has sent you ${ROUNDS_PER_TURN} new clues to guess.</p>
-      <div class="btn-row">
-        <button class="btn-primary" onclick="startGuessingFromHistory()">Start Guessing →</button>
-      </div>
-    </div>
-  `;
-
-  currentSession = { pendingState: state };
-}
-
-function startGuessingFromHistory() {
-  const state = currentSession.pendingState;
-  startGuessing(state);
+  showHome();
 }
 
 // ============ INIT ============
-window.addEventListener('hashchange', handleURL);
 handleURL();
 </script>
 </body>
