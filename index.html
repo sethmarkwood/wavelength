@@ -824,50 +824,121 @@ function resolvePackId(id) {
 }
 
 // ============ STATE ENCODING (compact game codes) ============
-function encodeState(state) {
-  const json = JSON.stringify(state);
-  // Use URI-safe base64
-  return btoa(unescape(encodeURIComponent(json)))
+// Custom compact text format — much shorter than JSON.
+// Format (lines separated by \n):
+//   Line 0: name
+//   Line 1: pack (single char)
+//   Line 2: turnNum
+//   Line 3: scores as name:pts,name:pts (or empty)
+//   Line 4: used indices comma-separated
+//   Lines 5+: one round per line as idx\ttarget\tclue
+
+function packState(name, packId, turnNum, scores, usedIndices, rounds) {
+  const scoreParts = Object.entries(scores || {}).map(([n,p]) => n + ':' + p);
+  const lines = [
+    name,
+    packId,
+    turnNum,
+    scoreParts.join(','),
+    usedIndices.join(','),
+    ...rounds.map(r => r.spectrumIdx + '\t' + r.target + '\t' + r.clue)
+  ];
+  return lines.join('\n');
+}
+
+function unpackState(str) {
+  try {
+    const lines = str.split('\n');
+    if (lines.length < 6) return null;
+    const scores = {};
+    if (lines[3]) {
+      lines[3].split(',').forEach(e => {
+        const lastColon = e.lastIndexOf(':');
+        if (lastColon > 0) {
+          scores[e.slice(0, lastColon)] = parseInt(e.slice(lastColon + 1));
+        }
+      });
+    }
+    const rounds = [];
+    for (let i = 5; i < lines.length; i++) {
+      if (!lines[i]) continue;
+      const tab1 = lines[i].indexOf('\t');
+      const tab2 = lines[i].indexOf('\t', tab1 + 1);
+      rounds.push({
+        spectrumIdx: parseInt(lines[i].slice(0, tab1)),
+        target: parseInt(lines[i].slice(tab1 + 1, tab2)),
+        clue: lines[i].slice(tab2 + 1),
+        guess: 50
+      });
+    }
+    return {
+      cluerName: lines[0],
+      packId: lines[1],
+      turnNum: parseInt(lines[2]) || 1,
+      scores,
+      usedIndices: lines[4] ? lines[4].split(',').map(Number) : [],
+      rounds
+    };
+  } catch(e) { return null; }
+}
+
+function toB64(str) {
+  return btoa(unescape(encodeURIComponent(str)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function decodeState(encoded) {
+function fromB64(b64) {
   try {
-    // Restore standard base64
-    let b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-    while (b64.length % 4) b64 += '=';
-    const json = decodeURIComponent(escape(atob(b64)));
-    return JSON.parse(json);
-  } catch(e) {
-    return null;
-  }
+    let s = b64.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return decodeURIComponent(escape(atob(s)));
+  } catch(e) { return null; }
 }
 
-function makeGameCode(state) {
-  return 'WL~' + encodeState(state);
+function makeGameCode(name, packId, turnNum, scores, usedIndices, rounds) {
+  return 'WL~' + toB64(packState(name, packId, turnNum, scores, usedIndices, rounds));
 }
 
 function parseGameCode(code) {
   code = code.trim();
-  // Strip WL~ prefix if present
   if (code.startsWith('WL~')) code = code.slice(3);
-  // Also try URL hash format for backward compat
+  // Try URL hash format for backward compat
   if (code.includes('#')) code = code.split('#').pop();
-  return decodeState(code);
-}
 
-// Build the compact share state (scores only, no replay history)
-function buildShareState(opts) {
-  return {
-    v: 2,
-    p: 'g', // phase: guess
-    n: opts.cluerName,
-    k: opts.packId,
-    r: opts.rounds.map(r => [r.spectrumIdx, r.target, r.clue]), // [idx, target, clue]
-    u: opts.usedIndices,
-    s: opts.scores || {},   // {playerName: totalPoints}
-    tn: opts.turnNum || 1
-  };
+  // Try compact format first
+  const raw = fromB64(code);
+  if (raw && raw.includes('\n')) {
+    return unpackState(raw);
+  }
+
+  // Fall back to legacy JSON format
+  try {
+    const state = JSON.parse(raw);
+    if (state && state.v === 2) {
+      return {
+        cluerName: state.n,
+        packId: state.k,
+        turnNum: state.tn || 1,
+        scores: state.s || {},
+        usedIndices: state.u || [],
+        rounds: state.r.map(r => ({ spectrumIdx: r[0], target: r[1], clue: r[2], guess: 50 }))
+      };
+    }
+    // Very old format
+    if (state && state.p1Name) {
+      const packId = resolvePackId(state.pack || 'c');
+      return {
+        cluerName: state.p1Name,
+        packId,
+        turnNum: 1,
+        scores: {},
+        usedIndices: state.usedIndices || [],
+        rounds: (state.rounds || []).map(r => ({ spectrumIdx: r.si, target: r.t, clue: r.c, guess: 50 }))
+      };
+    }
+  } catch(e) {}
+
+  return null;
 }
 
 // ============ GAME LOGIC ============
@@ -1037,7 +1108,7 @@ function joinFromCode() {
   if (!raw) return;
 
   const state = parseGameCode(raw);
-  if (!state || !state.r || !state.n) {
+  if (!state || !state.rounds || !state.cluerName) {
     $('join-error').classList.add('show');
     return;
   }
@@ -1174,16 +1245,14 @@ function prevClueRound() {
 function showGameCode() {
   const s = currentSession;
 
-  const shareState = buildShareState({
-    cluerName: s.cluerName,
-    packId: s.packId || activePackId,
-    rounds: s.rounds,
-    usedIndices: s.usedIndices,
-    scores: s.scores || {},
-    turnNum: s.turnNum || 1
-  });
-
-  const code = makeGameCode(shareState);
+  const code = makeGameCode(
+    s.cluerName,
+    s.packId || activePackId,
+    s.turnNum || 1,
+    s.scores || {},
+    s.usedIndices,
+    s.rounds
+  );
 
   app().innerHTML = `
     <div class="card fade-in">
@@ -1224,48 +1293,23 @@ function copyCode() {
 // ============ GUESSING PHASE ============
 
 function loadGameState(state) {
-  // Normalize pack ID
-  const packId = resolvePackId(state.k || state.pack || 'c');
+  // parseGameCode already normalizes to a standard shape:
+  // { cluerName, packId, turnNum, scores, usedIndices, rounds[] }
+  const packId = resolvePackId(state.packId || 'c');
   activePackId = packId;
   activePack = PACKS[packId];
 
-  // Handle v2 compact format
-  if (state.v === 2) {
-    currentSession = {
-      phase: 'guessing',
-      cluerName: state.n,
-      packId: packId,
-      rounds: state.r.map(r => ({
-        spectrumIdx: r[0],
-        target: r[1],
-        clue: r[2],
-        guess: 50
-      })),
-      usedIndices: state.u,
-      scores: state.s || {},
-      turnNum: state.tn || 1,
-      currentRound: 0,
-      guesserName: ''
-    };
-  } else {
-    // Legacy v1 format (URL hash)
-    currentSession = {
-      phase: 'guessing',
-      cluerName: state.p1Name,
-      packId: packId,
-      rounds: state.rounds.map(r => ({
-        spectrumIdx: r.si,
-        target: r.t,
-        clue: r.c,
-        guess: 50
-      })),
-      usedIndices: state.usedIndices,
-      scores: {},
-      turnNum: 1,
-      currentRound: 0,
-      guesserName: ''
-    };
-  }
+  currentSession = {
+    phase: 'guessing',
+    cluerName: state.cluerName,
+    packId: packId,
+    rounds: state.rounds,
+    usedIndices: state.usedIndices,
+    scores: state.scores || {},
+    turnNum: state.turnNum || 1,
+    currentRound: 0,
+    guesserName: ''
+  };
 
   showNameEntry();
 }
@@ -1430,10 +1474,9 @@ function handleURL() {
     return;
   }
 
-  // Try to parse as game state
-  const state = decodeState(hash);
-  if (state) {
-    // Clear the hash so it doesn't stick around
+  // Try to parse as game state (backward compat with old URL links)
+  const state = parseGameCode(hash);
+  if (state && state.rounds && state.cluerName) {
     history.replaceState(null, '', window.location.pathname);
     loadGameState(state);
     return;
