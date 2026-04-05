@@ -1187,7 +1187,8 @@ function startNewGame() {
     usedIndices: usedIndices,
     packId: activePackId,
     scores: {},
-    turnNum: 1
+    turnNum: 1,
+    skipsLeft: 1
   };
 
   showClueGiving();
@@ -1211,8 +1212,9 @@ function showClueGiving() {
         <input type="text" id="clue-input" placeholder="Type your clue..." maxlength="100" value="${escapeHtml(round.clue)}" />
       </div>
       <div class="btn-row">
-        ${s.currentRound > 0 ? '<button class="btn-secondary btn-small" onclick="prevClueRound()">← Back</button>' : ''}
-        <button class="btn-primary" onclick="submitClue()">${s.currentRound === ROUNDS_PER_TURN - 1 ? 'Finish & Get Code' : 'Next →'}</button>
+        ${s.currentRound > 0 ? '<button class="btn-secondary btn-small" onclick="prevClueRound()">\u2190 Back</button>' : ''}
+        ${s.skipsLeft > 0 ? '<button class="btn-secondary btn-small" onclick="skipSpectrum()" title="Get a different spectrum">Skip ('+s.skipsLeft+')</button>' : ''}
+        <button class="btn-primary" onclick="submitClue()">${s.currentRound === ROUNDS_PER_TURN - 1 ? 'Finish & Get Code' : 'Next \u2192'}</button>
       </div>
     </div>
   `;
@@ -1239,6 +1241,28 @@ function prevClueRound() {
   const clue = $('clue-input').value.trim();
   currentSession.rounds[currentSession.currentRound].clue = clue;
   currentSession.currentRound--;
+  showClueGiving();
+}
+
+function skipSpectrum() {
+  const s = currentSession;
+  if (s.skipsLeft <= 0) return;
+
+  // Remove the old spectrum index from used so it can appear later
+  const oldIdx = s.rounds[s.currentRound].spectrumIdx;
+  s.usedIndices = s.usedIndices.filter(i => i !== oldIdx);
+
+  // Pick a new one
+  const indices = pickSpectrums(1, s.usedIndices);
+  s.usedIndices.push(...indices);
+
+  s.rounds[s.currentRound] = {
+    spectrumIdx: indices[0],
+    target: generateTarget(),
+    clue: ''
+  };
+
+  s.skipsLeft--;
   showClueGiving();
 }
 
@@ -1456,7 +1480,8 @@ function startMyClues() {
     usedIndices: newUsed,
     packId: s.packId || activePackId,
     scores: s.scores,
-    turnNum: (s.turnNum || 1) + 1
+    turnNum: (s.turnNum || 1) + 1,
+    skipsLeft: 1
   };
 
   showClueGiving();
